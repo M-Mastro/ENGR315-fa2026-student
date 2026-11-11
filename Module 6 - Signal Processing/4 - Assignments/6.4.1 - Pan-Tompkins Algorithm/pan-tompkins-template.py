@@ -1,5 +1,7 @@
 import numpy as np
+from pathlib import Path
 from ekg_testbench import EKGTestBench
+from scipy.signal import butter, find_peaks, sosfiltfilt
 
 def detect_heartbeats(filepath):
     """
@@ -9,42 +11,51 @@ def detect_heartbeats(filepath):
     beats: the indices of detected heartbeats
     """
     if filepath == '':
-        return list()
-
-    # import the CSV file using numpy
-    path = filepath
+        return np.array([]), np.array([], dtype=int)
 
     # load data in matrix from CSV file; skip first two rows
-    ## your code here
+    data = np.loadtxt(filepath, delimiter=',', skiprows=2)
 
     # save each vector as own variable
-    ## your code here
+    time = data[:, 0]
+    sample_rate = 1 / np.median(np.diff(time))
 
     # identify one column to process. Call that column signal
-
-    signal = -1 ## your code here
+    signal = data[:, 1]
 
     # pass data through LOW PASS FILTER (OPTIONAL)
-    ## your code here
-
-    # pass data through HIGH PASS FILTER (OPTIONAL) to create BAND PASS result
-    ## your code here
+    # A band-pass filter combines the low-pass and high-pass stages.
+    upper_cutoff = min(15.0, sample_rate * 0.45)
+    filter_coefficients = butter(
+        3,
+        [5.0, upper_cutoff],
+        btype='bandpass',
+        fs=sample_rate,
+        output='sos',
+    )
+    filtered_signal = sosfiltfilt(filter_coefficients, signal)
 
     # pass data through differentiator
-    ## your code here
+    differentiated_signal = np.diff(filtered_signal, prepend=filtered_signal[0]) * sample_rate
 
     # pass data through square function
-    ## your code here
+    squared_signal = differentiated_signal ** 2
 
     # pass through moving average window
-    ## your code here
+    window_size = max(1, round(0.15 * sample_rate))
+    integration_window = np.ones(window_size) / window_size
+    signal = np.convolve(squared_signal, integration_window, mode='same')
 
     # use find_peaks to identify peaks within averaged/filtered data
     # save the peaks result and return as part of testbench result
 
-    ## your code here peaks,_ = find_peaks(....)
-
-    beats = None
+    detection_threshold = np.quantile(signal, 0.8)
+    beats, _ = find_peaks(
+        signal,
+        height=detection_threshold,
+        distance=max(1, round(0.25 * sample_rate)),
+        prominence=0.25 * detection_threshold,
+    )
 
     # do not modify this line
     return signal, beats
@@ -71,10 +82,10 @@ if __name__ == "__main__":
     ### DO NOT MODIFY BELOW THIS LINE!!! ###
 
     # path to ekg folder
-    path_to_folder = "../../../data/ekg/"
+    path_to_folder = Path(__file__).resolve().parents[3] / "data" / "ekg"
 
     # select a signal file to run
-    signal_filepath = path_to_folder + database_name + ".csv"
+    signal_filepath = path_to_folder / (database_name + ".csv")
 
     # call main() and run against the file. Should return the filtered
     # signal and identified peaks
@@ -86,7 +97,7 @@ if __name__ == "__main__":
 
     # matched is a list of (peak, annotation) pairs; unmatched is a list of peaks that were
     # not matched to any annotation; and remaining is annotations that were not matched.
-    annotation_path = path_to_folder + database_name + "_annotations.txt"
+    annotation_path = path_to_folder / (database_name + "_annotations.txt")
     tb = EKGTestBench(annotation_path)
     peaks_list = peaks.tolist()
     (matched, unmatched, remaining) = tb.generate_stats(peaks_list)
